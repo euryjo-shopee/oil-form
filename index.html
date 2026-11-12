@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '5';
+    var BUILD = '6';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -133,6 +133,16 @@
   .act button:disabled { opacity:.5; }
   .item .t.who { font-weight:600; word-break:break-all; }
   .sheet textarea { width:100%; min-height:84px; resize:none; border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; font-size:15px; background:var(--bg); color:var(--text); }
+  /* team balances */
+  .tsum { display:flex; gap:10px; padding:14px 16px 4px; }
+  .tsum div { flex:1; background:var(--bg-sub); border-radius:10px; padding:10px 6px; text-align:center; }
+  .tsum b { display:block; font-size:20px; font-weight:600; } .tsum span { color:var(--label); font-size:12px; }
+  .tsearch { display:block; width:calc(100% - 32px); margin:10px 16px 6px; height:40px; border:1px solid var(--line); border-radius:8px; padding:0 12px; font:inherit; font-size:15px; background:var(--bg); color:var(--text); outline:none; }
+  .mem { display:flex; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .mem .who { flex:1; min-width:0; } .mem .nm { font-weight:600; font-size:16px; } .mem .em { color:var(--label); font-size:13px; word-break:break-all; }
+  .mem .bar2 { height:6px; border-radius:3px; background:var(--bg-sub); margin-top:8px; overflow:hidden; } .mem .bar2 i { display:block; height:100%; background:var(--blue); border-radius:3px; }
+  .mem .meta { color:var(--label); font-size:12px; margin-top:6px; } .mem .meta em { font-style:normal; color:#f59e0b; font-weight:600; }
+  .mem .rem { text-align:center; min-width:64px; } .mem .rem b { display:block; font-size:26px; font-weight:500; color:var(--blue); line-height:1.1; } .mem .rem span { font-size:12px; color:var(--label); }
   .ver { text-align:center; color:var(--sub); font-size:11px; padding:6px 0 0; }
 
   /* loading button */
@@ -163,11 +173,12 @@
       <div><b id="total">-</b><span>Total</span></div>
     </div>
   </div>
-  <div class="tabs" id="tabs"><button id="tabMine" class="on">My OIL</button><button id="tabApr">Approvals<span class="badge" id="aprBadge"></span></button></div>
+  <div class="tabs" id="tabs"><button id="tabMine" class="on">My OIL</button><button id="tabApr">Approvals<span class="badge" id="aprBadge"></span></button><button id="tabTeam">Team</button></div>
   <div class="sec" id="histTitle">Application History</div>
   <div class="hist" id="aprList" style="display:none"></div>
+  <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v5</div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v6</div></div>
 </section>
 
 <!-- APPLY -->
@@ -372,15 +383,41 @@
     tab = t;
     $('hist').style.display = t === 'mine' ? '' : 'none';
     $('aprList').style.display = t === 'apr' ? '' : 'none';
-    $('tabMine').classList.toggle('on', t === 'mine'); $('tabApr').classList.toggle('on', t === 'apr');
-    $('histTitle').textContent = t === 'mine' ? 'Application History' : 'Pending Approvals';
+    $('teamList').style.display = t === 'team' ? '' : 'none';
+    $('tabMine').classList.toggle('on', t === 'mine'); $('tabApr').classList.toggle('on', t === 'apr'); $('tabTeam').classList.toggle('on', t === 'team');
+    $('histTitle').textContent = { mine: 'Application History', apr: 'Pending Approvals', team: 'Team OIL Balance' }[t];
   }
   $('tabMine').onclick = () => setTab('mine');
   $('tabApr').onclick = () => setTab('apr');
+  $('tabTeam').onclick = () => setTab('team');
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function renderTeam(d, q = '') {
+    const all = d.team || [];
+    const sum = k => num(all.reduce((a, m) => a + (m[k] || 0), 0));
+    const list = q ? all.filter(m => (m.name + ' ' + m.email).toLowerCase().includes(q.toLowerCase())) : all;
+    const box = $('teamList');
+    const search = box.querySelector('.tsearch');
+    const focused = search && document.activeElement === search;
+    box.innerHTML = `
+      <div class="tsum"><div><b>${all.length}</b><span>Members</span></div><div><b>${sum('remaining')}</b><span>Remaining (h)</span></div><div><b>${sum('used')}</b><span>Used (h)</span></div></div>
+      <input class="tsearch" type="search" placeholder="Search name or email" value="${esc(q)}">` +
+      (list.length ? list.map(m => {
+        const pct = m.granted > 0 ? Math.max(0, Math.min(100, Math.round(m.remaining / m.granted * 100))) : 0;
+        return `<div class="mem"><div class="who"><div class="nm">${esc(m.name || m.email)}</div><div class="em">${esc(m.email)}</div>
+          <div class="bar2"><i style="width:${pct}%"></i></div>
+          <div class="meta">Used ${m.used}h · Total ${m.granted}h${m.pending ? ` · <em>${m.pending} pending (${m.pendingHours}h)</em>` : ''}</div></div>
+          <div class="rem"><b>${m.remaining}</b><span>Remaining</span></div></div>`;
+      }).join('') : '<div class="empty">No team members found.</div>');
+    const s2 = box.querySelector('.tsearch');
+    s2.oninput = () => renderTeam(d, s2.value);
+    if (focused) { s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); }
+  }
 
   function renderApprovals(d) {
     $('tabs').classList.toggle('on', !!d.isApprover);
     if (!d.isApprover) { setTab('mine'); return; }
+    renderTeam(d);
     $('aprBadge').textContent = d.approvals.length ? d.approvals.length : '';
     $('aprList').innerHTML = d.approvals.length ? d.approvals.map((x, i) => `
       <div class="item"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
