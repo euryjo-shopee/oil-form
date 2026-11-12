@@ -86,6 +86,40 @@
   .toast { position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom)); transform:translateX(-50%); max-width:84%; background:rgba(30,30,30,.92); color:#fff; padding:10px 16px; border-radius:8px; font-size:15px; text-align:center; z-index:20; display:none; }
   .toast.on { display:block; }
   .toast.err { background:rgba(200,50,55,.95); }
+
+  /* status + history actions */
+  .item.tap { cursor:pointer; } .item.tap:active { background:var(--bg-sub); }
+  .item .s { font-weight:500; display:flex; align-items:center; gap:4px; }
+  .item .s.pending { color:#f59e0b; } .item .s.approved { color:var(--green); } .item .s.rejected { color:var(--red); } .item .s.cancelled { color:var(--sub); }
+  .item .s .chev { width:14px; height:14px; stroke:var(--sub); }
+  .item.dimmed .r,.item.dimmed .n { opacity:.55; }
+  /* ring spinner (same design as the shared Progress component) */
+  .spinner { position:relative; display:inline-block; width:32px; height:32px; color:var(--blue); animation:spin 1s linear infinite; }
+  .spinner::before { content:""; position:absolute; inset:0; border-radius:50%;
+    background:conic-gradient(from 0deg, transparent 0deg, currentColor 54deg, currentColor 270deg, transparent 270deg);
+    -webkit-mask-image:radial-gradient(circle, transparent 10.8px, #000 11px, #000 14.5px, transparent 14.7px);
+    mask-image:radial-gradient(circle, transparent 10.8px, #000 11px, #000 14.5px, transparent 14.7px); }
+  .spinner::after { content:""; position:absolute; border-radius:50%; background:currentColor; width:3.5px; height:3.5px; left:1.5px; top:14.25px; }
+  .spinner.lg { zoom:1.5; }
+  @media (prefers-reduced-motion: reduce) { .spinner, .primary.loading::before { animation:none; } }
+  .loadbox { display:flex; flex-direction:column; align-items:center; gap:14px; padding:48px 16px; color:var(--label); font-size:14px; }
+  .big .spinner.lg { display:block; margin:0 auto; }
+  .retry { margin-top:12px; height:40px; padding:0 20px; border-radius:6px; background:var(--blue); color:#fff; font-size:15px; }
+  .ver { text-align:center; color:var(--sub); font-size:11px; padding:6px 0 0; }
+
+  /* loading button */
+  .primary.loading { display:flex; align-items:center; justify-content:center; gap:10px; background:var(--blue); color:#fff; opacity:.85; }
+  .primary.loading::before { content:""; width:18px; height:18px; border-radius:50%; border:2.5px solid rgba(255,255,255,.4); border-top-color:#fff; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* bottom sheet */
+  .sheetmask { position:fixed; inset:0; background:var(--mask); display:none; align-items:flex-end; z-index:10; }
+  .sheetmask.on { display:flex; }
+  .sheet { width:100%; background:var(--dialog); border-radius:16px 16px 0 0; padding:18px 16px calc(14px + env(safe-area-inset-bottom)); }
+  .sheet h3 { margin:0 0 4px; font-size:17px; font-weight:600; } .sheet .meta { color:var(--label); font-size:14px; line-height:1.6; margin-bottom:12px; }
+  .sheet button { width:100%; height:48px; border-radius:8px; font-size:17px; margin-top:8px; background:var(--bg-sub); }
+  .sheet button.danger { color:var(--red); } .sheet button.main { background:var(--blue); color:#fff; }
+  .dlg .btns.one button { border-left:0; }
 </style>
 </head>
 <body>
@@ -94,7 +128,7 @@
 <section class="view on" id="home">
   <div class="hero"></div>
   <div class="balcard">
-    <div class="big" id="remain">-</div>
+    <div class="big" id="remain"><span class="spinner lg" role="status" aria-label="Loading"></span></div>
     <div class="cap">OIL Balance (Hour)</div>
     <div class="stats">
       <div><b id="applied">-</b><span>Used</span></div>
@@ -102,13 +136,13 @@
     </div>
   </div>
   <div class="sec">Application History</div>
-  <div class="hist" id="hist"><div class="empty">Loading…</div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button></div>
+  <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v3</div></div>
 </section>
 
 <!-- APPLY -->
 <section class="view" id="apply">
-  <div class="bar"><button class="back" id="applyBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><h1>Apply OIL</h1></div>
+  <div class="bar"><button class="back" id="applyBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><h1 id="applyTitle">Apply OIL</h1></div>
   <button class="row" id="dateRow" style="width:calc(100% - 0px)">
     <span class="l">OIL Date</span>
     <span class="v ph" id="dateVal">Select<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></span>
@@ -131,6 +165,12 @@
   <div class="calfoot"><span class="picked" id="picked"></span><button class="primary" id="calDone">Done</button></div>
 </section>
 
+<div class="sheetmask" id="sheetMask"><div class="sheet">
+  <h3 id="shTitle">OIL</h3><div class="meta" id="shMeta"></div>
+  <button class="main" id="shEdit">Modify</button>
+  <button class="danger" id="shCancel">Cancel Application</button>
+  <button id="shClose">Close</button>
+</div></div>
 <div class="mask" id="mask"><div class="dlg"><div class="b" id="dlgBody"></div><div class="btns"><button id="dlgNo">Cancel</button><button id="dlgYes">Confirm</button></div></div></div>
 <div class="toast" id="toast"></div>
 
@@ -144,7 +184,8 @@
   const $ = id => document.getElementById(id);
   const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let sso = null, busy = false, status = null, date = '', view = 'home';
+  let busy = false, status = null, date = '', view = 'home', editId = '', editHours = 0;
+  const INACTIVE = ['Cancelled', 'Rejected'];
   const pad = n => String(n).padStart(2, '0');
   const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   const fmtDate = s => { const [y,m,d] = s.split('-').map(Number); const w = new Date(y,m-1,d).getDay(); return `${MON[m-1]} ${d}, ${y} (${DOW[w]})`; };
@@ -154,17 +195,29 @@
   function go(v) { view = v; document.querySelectorAll('.view').forEach(e => e.classList.toggle('on', e.id === v)); window.scrollTo(0, 0); }
   function back() {
     if (view === 'cal') return go('apply');
-    if (view === 'apply') return go('home');
+    if (view === 'apply') { editId = ''; editHours = 0; return go('home'); }
     try { SDK.navigateBack && SDK.navigateBack(); } catch (e) {}
   }
   $('applyBack').onclick = back;
   $('calClose').onclick = () => go('apply');
-  $('goApply').onclick = () => { fillApprover(); go('apply'); refresh(); };
+  $('goApply').onclick = () => { editId = ''; editHours = 0; date = ''; fillApprover(); go('apply'); refresh(); };
 
   /* ---------- helpers ---------- */
   let tt;
   function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = 'toast on' + (err ? ' err' : ''); clearTimeout(tt); tt = setTimeout(() => t.className = 'toast', 3200); }
-  function ask(text) { return new Promise(res => { $('dlgBody').textContent = text; $('mask').classList.add('on'); $('dlgNo').onclick = () => { $('mask').classList.remove('on'); res(false); }; $('dlgYes').onclick = () => { $('mask').classList.remove('on'); res(true); }; }); }
+  // confirm dialog; with {alert:true} it shows a single OK button
+  function ask(text, opt = {}) {
+    return new Promise(res => {
+      $('dlgBody').textContent = text;
+      $('dlgNo').style.display = opt.alert ? 'none' : '';
+      $('dlgYes').textContent = opt.alert ? 'OK' : (opt.yes || 'Confirm');
+      $('dlgNo').textContent = opt.no || 'Cancel';
+      document.querySelector('#mask .btns').classList.toggle('one', !!opt.alert);
+      $('mask').classList.add('on');
+      $('dlgNo').onclick = () => { $('mask').classList.remove('on'); res(false); };
+      $('dlgYes').onclick = () => { $('mask').classList.remove('on'); res(true); };
+    });
+  }
 
   // same rules as Code.gs (preview only - server is the source of truth)
   function calc() {
@@ -192,11 +245,25 @@
     if (r.err) { $('change').textContent = '0 Hour'; note.className = 'note' + (date ? ' bad' : ''); note.textContent = date ? r.err : base; }
     else {
       $('change').textContent = `${r.h} Hour${r.h === 1 ? '' : 's'}`;
-      const after = status ? num(status.remainingOT - r.h) : null;
-      if (after !== null && after < 0) { note.className = 'note bad'; note.textContent = `Insufficient remaining OIL. Current remaining OIL: ${status.remainingOT} hours.`; }
+      const avail = status ? num(status.remainingOT + (editId ? editHours : 0)) : null;
+      const after = avail !== null ? num(avail - r.h) : null;
+      const ov = overlapWith();
+      if (ov) { note.className = 'note bad'; note.textContent = `You already have an OIL application for this time (${ov.start} - ${ov.end.slice(11)}, ${ov.status}). Please modify or cancel it first.`; }
+      else if (after !== null && after < 0) { note.className = 'note bad'; note.textContent = `Insufficient remaining OIL. Available: ${avail} hours.`; }
       else { note.className = 'note'; note.textContent = (r.cap ? 'Maximum 8 hours per day applied. ' : '') + (after !== null ? `Remaining after use: ${after} hours.` : base); ok = after !== null; }
     }
-    $('submit').disabled = !ok || busy;
+    const btn = $('submit');
+    btn.classList.toggle('loading', busy);
+    btn.textContent = busy ? (editId ? 'Saving…' : 'Applying…') : (editId ? 'Save Changes' : 'Apply OIL');
+    btn.disabled = !ok || busy;
+    $('applyTitle').textContent = editId ? 'Modify OIL' : 'Apply OIL';
+  }
+
+  // an existing (not cancelled/rejected) application of mine that overlaps the chosen time
+  function overlapWith() {
+    if (!date || !status) return null;
+    const s = $('start').value, e = $('end').value;
+    return status.history.find(x => x.id !== editId && !INACTIVE.includes(x.status) && x.start.slice(0, 10) === date && s < x.end.slice(11) && e > x.start.slice(11)) || null;
   }
   $('start').oninput = $('end').oninput = refresh;
 
@@ -251,31 +318,82 @@
     $('remain').textContent = d.remainingOT;
     $('applied').textContent = d.appliedOT;
     $('total').textContent = num(d.appliedOT + d.remainingOT);
-    $('hist').innerHTML = d.history.length ? d.history.map(x => `
-      <div class="item"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
-      <div class="d"><div class="t">OIL</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div><div class="s">Submitted</div></div></div>`).join('')
+    const chev = '<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
+    $('hist').innerHTML = d.history.length ? d.history.map((x, i) => `
+      <div class="item${x.editable ? ' tap' : ''}${INACTIVE.includes(x.status) ? ' dimmed' : ''}" data-i="${i}"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
+      <div class="d"><div class="t">OIL</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
+      <div class="s ${x.status.toLowerCase()}">${x.status === 'Pending' ? 'Pending approval' : x.status}${x.editable ? chev : ''}</div></div></div>`).join('')
       : '<div class="empty">No application history.</div>';
+    $('hist').querySelectorAll('.item.tap').forEach(el => el.onclick = () => openSheet(d.history[+el.dataset.i]));
     $('goApply').disabled = false;
     fillApprover(); refresh();
   }
 
   async function load() {
+    $('hist').innerHTML = '<div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div>';
+    $('remain').innerHTML = '<span class="spinner lg" role="status" aria-label="Loading"></span>';
+    $('applied').textContent = $('total').textContent = '-';
     try { render(await api({ action: 'status' })); }
-    catch (e) { $('hist').innerHTML = `<div class="empty">${(e && e.message) || 'Please open this app inside SeaTalk.'}</div>`; }
+    catch (e) {
+      $('remain').textContent = '-';
+      $('hist').innerHTML = `<div class="loadbox"><div>${(e && e.message) || 'Please open this app inside SeaTalk.'}</div><button class="retry" id="retry">Retry</button></div>`;
+      $('retry').onclick = load;
+    }
   }
+
+  /* ---------- pending application: modify / cancel ---------- */
+  let current = null;
+  function openSheet(x) {
+    current = x;
+    $('shTitle').textContent = 'OIL · Pending approval';
+    $('shMeta').innerHTML = `${x.start} - ${x.end.slice(11)} (${x.hours}h)<br>Applied ${x.appliedAt}`;
+    $('sheetMask').classList.add('on');
+  }
+  const closeSheet = () => $('sheetMask').classList.remove('on');
+  $('shClose').onclick = closeSheet;
+  $('sheetMask').onclick = e => { if (e.target.id === 'sheetMask') closeSheet(); };
+  $('shEdit').onclick = () => {
+    closeSheet(); editId = current.id; editHours = +current.hours;
+    date = current.start.slice(0, 10); $('start').value = current.start.slice(11); $('end').value = current.end.slice(11);
+    fillApprover(); go('apply'); refresh();
+  };
+  $('shCancel').onclick = async () => {
+    closeSheet();
+    if (!(await ask(`Cancel this application?\n${current.start} - ${current.end.slice(11)} (${current.hours}h)\nThe hours will be refunded.`, { yes: 'Cancel Application', no: 'Keep' }))) return;
+    try {
+      const out = await withBusy('Cancelling…', () => api({ action: 'cancel', id: current.id }));
+      toast(`Cancelled · Remaining ${out.remaining}h`);
+      await reload();
+    } catch (err) { await ask(err.message, { alert: true }); }
+  };
+
+  // full-screen busy overlay for actions that start outside the form button
+  async function withBusy(label, fn) {
+    toast(label); busy = true;
+    try { return await fn(); } finally { busy = false; }
+  }
+  async function reload() { try { render(await api({ action: 'status' })); } catch (e) { toast('Done, but the list could not be refreshed. Tap ↻ to reload.', true); } }
 
   $('submit').onclick = async () => {
     const r = calc(); if (r.err) return;
     const s = $('start').value, e = $('end').value;
     const post = new Date(`${date}T${s}`) < new Date();
-    const msg = `${fmtDate(date)}\n${s} – ${e}\n${r.h} hour${r.h === 1 ? '' : 's'} will be deducted.` + (post ? '\n\nThis is a post-application. OIL must be applied in advance unless absolutely necessary.' : '');
-    if (!(await ask(msg))) return;
+    const msg = `${fmtDate(date)}\n${s} – ${e}\n${r.h} hour${r.h === 1 ? '' : 's'} will be ${editId ? 'applied (replacing the pending application)' : 'deducted'}.` + (post ? '\n\nThis is a post-application. OIL must be applied in advance unless absolutely necessary.' : '');
+    if (!(await ask(msg, { yes: editId ? 'Save' : 'Apply' }))) return;
     busy = true; refresh();
+    let done = false;
     try {
-      const out = await api({ action: 'submit', start: `${date}T${s}`, end: `${date}T${e}` });
-      toast(`Applied ${out.usage}h · Remaining ${out.remaining}h`);
-      date = ''; render(await api({ action: 'status' })); go('home');
-    } catch (err) { toast(err.message, true); }
+      const body = { action: editId ? 'modify' : 'submit', start: `${date}T${s}`, end: `${date}T${e}` };
+      if (editId) body.id = editId;
+      const out = await api(body);
+      done = true;
+      toast(`${editId ? 'Updated' : 'Applied'} ${out.usage}h · Remaining ${out.remaining}h`);
+      editId = ''; editHours = 0; date = '';
+      go('home');
+      await reload();   // a refresh failure must not look like a failed application
+    } catch (err) {
+      if (!done) await ask(err.message, { alert: true });
+    }
     busy = false; refresh();
   };
 
