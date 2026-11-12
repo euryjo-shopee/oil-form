@@ -230,10 +230,19 @@
   $('calDone').onclick = () => { if (!pick) return; date = pick; go('apply'); refresh(); };
 
   /* ---------- API ---------- */
+  // SSO token is single-use: send it once, then use the server session it returns
+  let session = '';
   async function api(body) {
-    const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, ssoToken: sso }) });
-    const j = await res.json();
+    const send = async () => {
+      const payload = { ...body };
+      if (session) payload.session = session; else payload.ssoToken = await SDK.getSSOToken();
+      const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+      return res.json();
+    };
+    let j = await send();
+    if (!j.ok && j.code === 'SESSION_EXPIRED') { session = ''; j = await send(); }
     if (!j.ok) throw new Error(j.error || 'Request failed');
+    if (j.session) session = j.session;
     return j.data;
   }
 
@@ -251,7 +260,7 @@
   }
 
   async function load() {
-    try { sso = await SDK.getSSOToken(); render(await api({ action: 'status' })); }
+    try { render(await api({ action: 'status' })); }
     catch (e) { $('hist').innerHTML = `<div class="empty">${(e && e.message) || 'Please open this app inside SeaTalk.'}</div>`; }
   }
 
@@ -263,7 +272,6 @@
     if (!(await ask(msg))) return;
     busy = true; refresh();
     try {
-      sso = await SDK.getSSOToken();  // fresh token for each call
       const out = await api({ action: 'submit', start: `${date}T${s}`, end: `${date}T${e}` });
       toast(`Applied ${out.usage}h · Remaining ${out.remaining}h`);
       date = ''; render(await api({ action: 'status' })); go('home');
