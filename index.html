@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '4';
+    var BUILD = '5';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -122,6 +122,17 @@
   .loadbox { display:flex; flex-direction:column; align-items:center; gap:14px; padding:48px 16px; color:var(--label); font-size:14px; }
   .big .spinner.lg { display:block; margin:0 auto; }
   .retry { margin-top:12px; height:40px; padding:0 20px; border-radius:6px; background:var(--blue); color:#fff; font-size:15px; }
+  /* manager tabs + approvals */
+  .tabs { display:none; margin:16px 16px 0; background:var(--bg-sub); border-radius:8px; padding:3px; }
+  .tabs.on { display:flex; } .tabs button { flex:1; height:36px; border-radius:6px; font-size:15px; color:var(--label); }
+  .tabs button.on { background:var(--card); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .badge { display:inline-block; min-width:18px; height:18px; line-height:18px; margin-left:6px; padding:0 5px; border-radius:9px; background:var(--red); color:#fff; font-size:12px; font-weight:600; vertical-align:1px; }
+  .badge:empty { display:none; }
+  .act { display:flex; gap:8px; margin-top:10px; } .act button { flex:1; height:36px; border-radius:6px; font-size:15px; background:var(--bg-sub); }
+  .act .ok { background:var(--blue); color:#fff; } .act .no { color:var(--red); }
+  .act button:disabled { opacity:.5; }
+  .item .t.who { font-weight:600; word-break:break-all; }
+  .sheet textarea { width:100%; min-height:84px; resize:none; border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; font-size:15px; background:var(--bg); color:var(--text); }
   .ver { text-align:center; color:var(--sub); font-size:11px; padding:6px 0 0; }
 
   /* loading button */
@@ -152,9 +163,11 @@
       <div><b id="total">-</b><span>Total</span></div>
     </div>
   </div>
-  <div class="sec">Application History</div>
+  <div class="tabs" id="tabs"><button id="tabMine" class="on">My OIL</button><button id="tabApr">Approvals<span class="badge" id="aprBadge"></span></button></div>
+  <div class="sec" id="histTitle">Application History</div>
+  <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v4</div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v5</div></div>
 </section>
 
 <!-- APPLY -->
@@ -187,6 +200,12 @@
   <button class="main" id="shEdit">Modify</button>
   <button class="danger" id="shCancel">Cancel Application</button>
   <button id="shClose">Close</button>
+</div></div>
+<div class="sheetmask" id="rejMask"><div class="sheet">
+  <h3>Reject application</h3><div class="meta" id="rejMeta"></div>
+  <textarea id="rejReason" maxlength="300" placeholder="Reason (optional, sent to the applicant)"></textarea>
+  <button class="danger" id="rejOk">Reject</button>
+  <button id="rejClose">Cancel</button>
 </div></div>
 <div class="mask" id="mask"><div class="dlg"><div class="b" id="dlgBody"></div><div class="btns"><button id="dlgNo">Cancel</button><button id="dlgYes">Confirm</button></div></div></div>
 <div class="toast" id="toast"></div>
@@ -343,7 +362,61 @@
       : '<div class="empty">No application history.</div>';
     $('hist').querySelectorAll('.item.tap').forEach(el => el.onclick = () => openSheet(d.history[+el.dataset.i]));
     $('goApply').disabled = false;
+    renderApprovals(d);
     fillApprover(); refresh();
+  }
+
+  /* ---------- manager: approvals tab (temporary, to be replaced by Approval Center) ---------- */
+  let tab = 'mine';
+  function setTab(t) {
+    tab = t;
+    $('hist').style.display = t === 'mine' ? '' : 'none';
+    $('aprList').style.display = t === 'apr' ? '' : 'none';
+    $('tabMine').classList.toggle('on', t === 'mine'); $('tabApr').classList.toggle('on', t === 'apr');
+    $('histTitle').textContent = t === 'mine' ? 'Application History' : 'Pending Approvals';
+  }
+  $('tabMine').onclick = () => setTab('mine');
+  $('tabApr').onclick = () => setTab('apr');
+
+  function renderApprovals(d) {
+    $('tabs').classList.toggle('on', !!d.isApprover);
+    if (!d.isApprover) { setTab('mine'); return; }
+    $('aprBadge').textContent = d.approvals.length ? d.approvals.length : '';
+    $('aprList').innerHTML = d.approvals.length ? d.approvals.map((x, i) => `
+      <div class="item"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
+      <div class="d"><div class="t who">${x.applicant}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
+      <div class="act"><button class="no" data-i="${i}" data-a="reject">Reject</button><button class="ok" data-i="${i}" data-a="approve">Approve</button></div></div></div>`).join('')
+      : '<div class="empty">No applications waiting for your approval.</div>';
+    $('aprList').querySelectorAll('.act button').forEach(b => b.onclick = () => decide(d.approvals[+b.dataset.i], b.dataset.a, b));
+  }
+
+  async function decide(x, action, btn) {
+    if (busy) return;
+    if (action === 'approve') {
+      if (!(await ask(`Approve this OIL application?\n${x.applicant}\n${x.start} - ${x.end.slice(11)} (${x.hours}h)`, { yes: 'Approve' }))) return;
+      await runDecision(x, 'approve', '', btn);
+    } else {
+      $('rejMeta').innerHTML = `${x.applicant}<br>${x.start} - ${x.end.slice(11)} (${x.hours}h) · the hours will be refunded`;
+      $('rejReason').value = ''; $('rejMask').classList.add('on');
+      $('rejOk').onclick = async () => { const reason = $('rejReason').value.trim(); $('rejMask').classList.remove('on'); await runDecision(x, 'reject', reason, btn); };
+    }
+  }
+  $('rejClose').onclick = () => $('rejMask').classList.remove('on');
+  $('rejMask').onclick = e => { if (e.target.id === 'rejMask') $('rejMask').classList.remove('on'); };
+
+  async function runDecision(x, action, reason, btn) {
+    busy = true;
+    document.querySelectorAll('#aprList .act button').forEach(b => b.disabled = true);
+    btn.classList.add('loading');
+    try {
+      await api({ action, id: x.id, reason });
+      toast(action === 'approve' ? 'Approved' : 'Rejected · hours refunded');
+      await reload();
+    } catch (err) {
+      await ask(err.message, { alert: true });
+      document.querySelectorAll('#aprList .act button').forEach(b => b.disabled = false);
+    }
+    btn.classList.remove('loading'); busy = false;
   }
 
   async function load() {
