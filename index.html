@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '10';
+    var BUILD = '11';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -190,7 +190,7 @@
   <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v10</div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v11</div></div>
 </section>
 
 <!-- APPLY -->
@@ -482,8 +482,10 @@
       toast(action === 'approve' ? 'Approved' : 'Rejected · hours refunded');
       await reload();
     } catch (err) {
+      // e.g. already handled from the approval email or SeaTalk Approval Center: tell the manager, then show the current list
       await ask(err.message, { alert: true });
-      document.querySelectorAll('#aprList .act button').forEach(b => b.disabled = false);
+      busy = false;
+      await reload();
     }
     btn.classList.remove('loading'); busy = false;
   }
