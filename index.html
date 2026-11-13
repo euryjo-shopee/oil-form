@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '6';
+    var BUILD = '7';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -76,6 +76,8 @@
   .gap { height:12px; background:var(--bg-sub); }
   .note { margin:14px 16px 0; color:var(--label); font-size:13px; line-height:1.55; }
   .note.bad { color:var(--red); }
+  .note.warn { color:#d97706; font-weight:500; }
+  .tagpost { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px; background:rgba(245,158,11,.16); color:#d97706; font-size:11px; font-weight:600; vertical-align:2px; }
   #apply .spacer { flex:1; }
 
   /* calendar */
@@ -178,7 +180,7 @@
   <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v6</div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v7</div></div>
 </section>
 
 <!-- APPLY -->
@@ -193,7 +195,7 @@
   <div class="row"><span class="l">Balance Change</span><span class="v" id="change">0 Hour</span></div>
   <div class="gap"></div>
   <div class="row"><span class="l">Approver(s)</span><span class="v" id="approver">-</span></div>
-  <div class="note" id="note">Allowed time: 07:30 – 20:30, one day per application. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance.</div>
+  <div class="note" id="note">Allowed time: 07:30 – 20:30, one day per application. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.</div>
   <div class="spacer"></div>
   <div class="foot"><button class="primary" id="submit" disabled>Apply OIL</button></div>
 </section>
@@ -287,7 +289,8 @@
     $('dateVal').innerHTML = (date ? fmtDate(date) : 'Select') + '<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
     $('dateVal').classList.toggle('ph', !date);
     const r = calc(), note = $('note');
-    const base = 'Allowed time: 07:30 – 20:30, one day per application. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance.';
+    const base = 'Allowed time: 07:30 – 20:30, one day per application. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.';
+    const past = !!(date && $('start').value && new Date(`${date}T${$('start').value}`) < new Date());
     let ok = false;
     if (r.err) { $('change').textContent = '0 Hour'; note.className = 'note' + (date ? ' bad' : ''); note.textContent = date ? r.err : base; }
     else {
@@ -297,7 +300,11 @@
       const ov = overlapWith();
       if (ov) { note.className = 'note bad'; note.textContent = `You already have an OIL application for this time (${ov.start} - ${ov.end.slice(11)}, ${ov.status}). Please modify or cancel it first.`; }
       else if (after !== null && after < 0) { note.className = 'note bad'; note.textContent = `Insufficient remaining OIL. Available: ${avail} hours.`; }
-      else { note.className = 'note'; note.textContent = (r.cap ? 'Maximum 8 hours per day applied. ' : '') + (after !== null ? `Remaining after use: ${after} hours.` : base); ok = after !== null; }
+      else {
+        note.className = 'note' + (past ? ' warn' : '');
+        note.textContent = (past ? '⚠ This time has already passed (post-application). OIL should be applied in advance, so please avoid post-applications unless absolutely necessary. ' : '') + (r.cap ? 'Maximum 8 hours per day applied. ' : '') + (after !== null ? `Remaining after use: ${after} hours.` : base);
+        ok = after !== null;
+      }
     }
     const btn = $('submit');
     btn.classList.toggle('loading', busy);
@@ -368,7 +375,7 @@
     const chev = '<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
     $('hist').innerHTML = d.history.length ? d.history.map((x, i) => `
       <div class="item${x.editable ? ' tap' : ''}${INACTIVE.includes(x.status) ? ' dimmed' : ''}" data-i="${i}"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
-      <div class="d"><div class="t">OIL</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
+      <div class="d"><div class="t">OIL${x.post ? '<span class="tagpost">Post-application</span>' : ''}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
       <div class="s ${x.status.toLowerCase()}">${x.status === 'Pending' ? 'Pending approval' : x.status}${x.editable ? chev : ''}</div></div></div>`).join('')
       : '<div class="empty">No application history.</div>';
     $('hist').querySelectorAll('.item.tap').forEach(el => el.onclick = () => openSheet(d.history[+el.dataset.i]));
@@ -421,7 +428,7 @@
     $('aprBadge').textContent = d.approvals.length ? d.approvals.length : '';
     $('aprList').innerHTML = d.approvals.length ? d.approvals.map((x, i) => `
       <div class="item"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
-      <div class="d"><div class="t who">${x.applicant}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
+      <div class="d"><div class="t who">${x.applicant}${x.post ? '<span class="tagpost">Post-application</span>' : ''}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
       <div class="act"><button class="no" data-i="${i}" data-a="reject">Reject</button><button class="ok" data-i="${i}" data-a="approve">Approve</button></div></div></div>`).join('')
       : '<div class="empty">No applications waiting for your approval.</div>';
     $('aprList').querySelectorAll('.act button').forEach(b => b.onclick = () => decide(d.approvals[+b.dataset.i], b.dataset.a, b));
@@ -505,8 +512,8 @@
     const r = calc(); if (r.err) return;
     const s = $('start').value, e = $('end').value;
     const post = new Date(`${date}T${s}`) < new Date();
-    const msg = `${fmtDate(date)}\n${s} – ${e}\n${r.h} hour${r.h === 1 ? '' : 's'} will be ${editId ? 'applied (replacing the pending application)' : 'deducted'}.` + (post ? '\n\nThis is a post-application. OIL must be applied in advance unless absolutely necessary.' : '');
-    if (!(await ask(msg, { yes: editId ? 'Save' : 'Apply' }))) return;
+    const msg = (post ? '⚠ Post-application\nThis time has already passed. OIL must be applied in advance unless absolutely necessary.\n\n' : '') + `${fmtDate(date)}\n${s} – ${e}\n${r.h} hour${r.h === 1 ? '' : 's'} will be ${editId ? 'applied (replacing the pending application)' : 'deducted'}.`;
+    if (!(await ask(msg, { yes: post ? 'Apply anyway' : (editId ? 'Save' : 'Apply'), no: post ? 'Go back' : 'Cancel' }))) return;
     busy = true; refresh();
     let done = false;
     try {
