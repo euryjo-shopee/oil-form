@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '8';
+    var BUILD = '9';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -74,6 +74,10 @@
   .row .v.ph { color:var(--sub); } .chev { width:16px; height:16px; stroke:var(--sub); fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
   .row input[type=time] { font:inherit; color:var(--text); background:transparent; border:0; text-align:right; outline:none; -webkit-appearance:none; appearance:none; min-width:96px; }
   .gap { height:12px; background:var(--bg-sub); }
+  .reasonbox { position:relative; margin:0 16px; padding:12px 0 6px; border-bottom:1px solid var(--line); }
+  .reasonbox textarea { display:block; width:100%; resize:none; border:0; outline:0; padding:0 0 18px; font:inherit; font-size:16px; line-height:1.5; background:transparent; color:var(--text); }
+  .reasonbox textarea::placeholder { color:var(--sub); }
+  .reasonbox .cnt { position:absolute; right:0; bottom:8px; font-size:12px; color:var(--sub); }
   .note { margin:14px 16px 0; color:var(--label); font-size:13px; line-height:1.55; }
   .note.bad { color:var(--red); }
   .note.warn { color:#d97706; font-weight:500; }
@@ -180,7 +184,7 @@
   <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v8</div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v9</div></div>
 </section>
 
 <!-- APPLY -->
@@ -195,6 +199,7 @@
   <div class="row"><span class="l">Balance Change</span><span class="v" id="change">0 Hour</span></div>
   <div class="gap"></div>
   <div class="row"><span class="l">Approver(s)</span><span class="v" id="approver">-</span></div>
+  <div class="reasonbox"><textarea id="reason" maxlength="120" rows="3" placeholder="Reason (optional)"></textarea><span class="cnt" id="reasonCnt">0/120</span></div>
   <div class="note" id="note">Allowed time: 07:30 – 20:30, one day per application. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.</div>
   <div class="spacer"></div>
   <div class="foot"><button class="primary" id="submit" disabled>Apply OIL</button></div>
@@ -251,7 +256,8 @@
   }
   $('applyBack').onclick = back;
   $('calClose').onclick = () => go('apply');
-  $('goApply').onclick = () => { editId = ''; editHours = 0; date = ''; fillApprover(); go('apply'); refresh(); };
+  $('goApply').onclick = () => { editId = ''; editHours = 0; date = ''; $('reason').value = ''; $('reasonCnt').textContent = '0/120'; fillApprover(); go('apply'); refresh(); };
+  $('reason').oninput = () => { $('reasonCnt').textContent = `${$('reason').value.length}/120`; };
 
   /* ---------- helpers ---------- */
   let tt;
@@ -378,7 +384,7 @@
     $('hist').innerHTML = d.history.length ? d.history.map((x, i) => `
       <div class="item${x.editable || x.cancelMode ? ' tap' : ''}${INACTIVE.includes(x.status) ? ' dimmed' : ''}" data-i="${i}"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
       <div class="d"><div class="t">OIL${x.post ? '<span class="tagpost">Post-application</span>' : ''}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
-      <div class="s ${x.status.toLowerCase().replace(/\s+/g, '-')}">${x.status === 'Pending' ? 'Pending approval' : x.status === 'Cancel Requested' ? 'Cancellation pending approval' : x.status}${x.editable || x.cancelMode ? chev : ''}</div></div></div>`).join('')
+      <div class="s ${x.status.toLowerCase().replace(/\s+/g, '-')}">${x.system ? 'Error · rejected (approver unavailable)' : x.status === 'Pending' ? 'Pending approval' : x.status === 'Cancel Requested' ? 'Cancellation pending approval' : x.status}${x.editable || x.cancelMode ? chev : ''}</div></div></div>`).join('')
       : '<div class="empty">No application history.</div>';
     $('hist').querySelectorAll('.item.tap').forEach(el => el.onclick = () => openSheet(d.history[+el.dataset.i]));
     $('goApply').disabled = false;
@@ -439,10 +445,10 @@
   async function decide(x, action, btn) {
     if (busy) return;
     if (action === 'approve') {
-      if (!(await ask(`Approve this OIL application?\n${x.applicant}\n${x.start} - ${x.end.slice(11)} (${x.hours}h)`, { yes: 'Approve' }))) return;
+      if (!(await ask(`Approve this OIL application?\n${x.applicant}\n${x.start} - ${x.end.slice(11)} (${x.hours}h)\nReason: ${x.reason || '–'}`, { yes: 'Approve' }))) return;
       await runDecision(x, 'approve', '', btn);
     } else {
-      $('rejMeta').innerHTML = `${x.applicant}<br>${x.start} - ${x.end.slice(11)} (${x.hours}h) · the hours will be refunded`;
+      $('rejMeta').innerHTML = `${esc(x.applicant)}<br>${x.start} - ${x.end.slice(11)} (${x.hours}h) · the hours will be refunded<br>Reason: ${esc(x.reason || '–')}`;
       $('rejReason').value = ''; $('rejMask').classList.add('on');
       $('rejOk').onclick = async () => { const reason = $('rejReason').value.trim(); $('rejMask').classList.remove('on'); await runDecision(x, 'reject', reason, btn); };
     }
@@ -483,7 +489,7 @@
     current = x;
     const req = x.cancelMode === 'request';
     $('shTitle').textContent = x.status === 'Pending' ? 'OIL · Pending approval' : 'OIL · Approved';
-    $('shMeta').innerHTML = `${x.start} - ${x.end.slice(11)} (${x.hours}h)<br>Applied ${x.appliedAt}`;
+    $('shMeta').innerHTML = `${x.start} - ${x.end.slice(11)} (${x.hours}h)<br>Applied ${x.appliedAt}` + (x.reason ? `<br>Reason: ${esc(x.reason)}` : '');
     $('shEdit').style.display = x.editable ? '' : 'none';
     $('shHint').textContent = x.status === 'Pending' ? ''
       : req ? `This period has already started or passed. Cancelling needs approval from ${(status && status.cancelApprover) || 'the person in charge'}, and your hours stay deducted until it is approved.`
@@ -501,6 +507,7 @@
   $('shEdit').onclick = () => {
     closeSheet(); editId = current.id; editHours = +current.hours;
     date = current.start.slice(0, 10); $('start').value = current.start.slice(11); $('end').value = current.end.slice(11);
+    $('reason').value = current.reason || ''; $('reasonCnt').textContent = `${$('reason').value.length}/120`;
     fillApprover(); go('apply'); refresh();
   };
   $('shCancel').onclick = async () => {
@@ -537,7 +544,7 @@
     busy = true; refresh();
     let done = false;
     try {
-      const body = { action: editId ? 'modify' : 'submit', start: `${date}T${s}`, end: `${date}T${e}` };
+      const body = { action: editId ? 'modify' : 'submit', start: `${date}T${s}`, end: `${date}T${e}`, reason: $('reason').value.trim() };
       if (editId) body.id = editId;
       const out = await api(body);
       done = true;
