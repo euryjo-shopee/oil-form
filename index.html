@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '9';
+    var BUILD = '10';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -74,10 +74,16 @@
   .row .v.ph { color:var(--sub); } .chev { width:16px; height:16px; stroke:var(--sub); fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
   .row input[type=time] { font:inherit; color:var(--text); background:transparent; border:0; text-align:right; outline:none; -webkit-appearance:none; appearance:none; min-width:96px; }
   .gap { height:12px; background:var(--bg-sub); }
-  .reasonbox { position:relative; margin:0 16px; padding:12px 0 6px; border-bottom:1px solid var(--line); }
-  .reasonbox textarea { display:block; width:100%; resize:none; border:0; outline:0; padding:0 0 18px; font:inherit; font-size:16px; line-height:1.5; background:transparent; color:var(--text); }
-  .reasonbox textarea::placeholder { color:var(--sub); }
-  .reasonbox .cnt { position:absolute; right:0; bottom:8px; font-size:12px; color:var(--sub); }
+  /* grouped approval card (one request, several dates) */
+  .grp { padding:14px 16px 4px; border-bottom:1px solid var(--line); }
+  .grp .gh .t { font-weight:600; word-break:break-all; } .grp .gh .m { color:var(--label); font-size:13px; margin-top:2px; }
+  .grp .gi { margin:10px 0; padding:10px 12px; background:var(--bg-sub); border-radius:10px; }
+  .grp .gd { display:flex; justify-content:space-between; gap:8px; font-size:15px; } .grp .gd b { font-weight:600; } .grp .gd span { color:var(--blue); font-weight:600; white-space:nowrap; }
+  .grp .gi .act { margin-top:8px; }
+  .sec2 { margin-top:6px; background:var(--bg-sub); color:var(--sub); font-size:13px; padding:8px 16px; }
+  .creq { padding:12px 16px; border-bottom:1px solid var(--line); cursor:pointer; } .creq:active { background:var(--bg-sub); }
+  .creq .t { font-weight:600; word-break:break-all; } .creq .r { font-size:15px; margin-top:2px; } .creq .m { color:#f59e0b; font-size:13px; font-weight:600; margin-top:2px; }
+  .day.sel.multi::after { content:"\2713"; position:absolute; right:10px; top:6px; font-size:11px; color:#fff; }
   .note { margin:14px 16px 0; color:var(--label); font-size:13px; line-height:1.55; }
   .note.bad { color:var(--red); }
   .note.warn { color:#d97706; font-weight:500; }
@@ -184,7 +190,7 @@
   <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v9</div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v10</div></div>
 </section>
 
 <!-- APPLY -->
@@ -199,8 +205,7 @@
   <div class="row"><span class="l">Balance Change</span><span class="v" id="change">0 Hour</span></div>
   <div class="gap"></div>
   <div class="row"><span class="l">Approver(s)</span><span class="v" id="approver">-</span></div>
-  <div class="reasonbox"><textarea id="reason" maxlength="120" rows="3" placeholder="Reason (optional)"></textarea><span class="cnt" id="reasonCnt">0/120</span></div>
-  <div class="note" id="note">Allowed time: 07:30 – 20:30, one day per application. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.</div>
+  <div class="note" id="note">Allowed time: 07:30 – 20:30. You can pick several dates; the same time applies to each day and your manager can approve or reject each day separately. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.</div>
   <div class="spacer"></div>
   <div class="foot"><button class="primary" id="submit" disabled>Apply OIL</button></div>
 </section>
@@ -221,12 +226,6 @@
   <button class="danger" id="shCancel">Cancel Application</button>
   <button id="shClose">Close</button>
 </div></div>
-<div class="sheetmask" id="rejMask"><div class="sheet">
-  <h3>Reject application</h3><div class="meta" id="rejMeta"></div>
-  <textarea id="rejReason" maxlength="300" placeholder="Reason (optional, sent to the applicant)"></textarea>
-  <button class="danger" id="rejOk">Reject</button>
-  <button id="rejClose">Cancel</button>
-</div></div>
 <div class="mask" id="mask"><div class="dlg"><div class="b" id="dlgBody"></div><div class="btns"><button id="dlgNo">Cancel</button><button id="dlgYes">Confirm</button></div></div></div>
 <div class="toast" id="toast"></div>
 
@@ -240,11 +239,14 @@
   const $ = id => document.getElementById(id);
   const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let busy = false, status = null, date = '', view = 'home', editId = '', editHours = 0;
+  let busy = false, status = null, dates = [], view = 'home', editId = '', editHours = 0;
+  const MAX_DATES = 20;
   const INACTIVE = ['Cancelled', 'Rejected'];
   const pad = n => String(n).padStart(2, '0');
   const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   const fmtDate = s => { const [y,m,d] = s.split('-').map(Number); const w = new Date(y,m-1,d).getDay(); return `${MON[m-1]} ${d}, ${y} (${DOW[w]})`; };
+  const fmtShort = s => { const [, m, d] = s.split('-').map(Number); return `${MON[m-1]} ${d}`; };
+  const dateLabel = () => !dates.length ? 'Select' : dates.length === 1 ? fmtDate(dates[0]) : `${dates.slice(0, 2).map(fmtShort).join(', ')}${dates.length > 2 ? ` +${dates.length - 2}` : ''} (${dates.length} days)`;
   const num = n => Math.round(n * 100) / 100;
 
   /* ---------- navigation ---------- */
@@ -256,8 +258,7 @@
   }
   $('applyBack').onclick = back;
   $('calClose').onclick = () => go('apply');
-  $('goApply').onclick = () => { editId = ''; editHours = 0; date = ''; $('reason').value = ''; $('reasonCnt').textContent = '0/120'; fillApprover(); go('apply'); refresh(); };
-  $('reason').oninput = () => { $('reasonCnt').textContent = `${$('reason').value.length}/120`; };
+  $('goApply').onclick = () => { editId = ''; editHours = 0; dates = []; fillApprover(); go('apply'); refresh(); };
 
   /* ---------- helpers ---------- */
   let tt;
@@ -279,7 +280,7 @@
   // same rules as Code.gs (preview only - server is the source of truth)
   function calc() {
     const s = $('start').value, e = $('end').value;
-    if (!date) return { err: 'Please select a date.' };
+    if (!dates.length) return { err: 'Please select a date.' };
     if (!s || !e) return { err: 'Please enter start and end time.' };
     const m = t => +t.slice(0,2) * 60 + +t.slice(3,5);
     const a = m(s), b = m(e);
@@ -290,49 +291,50 @@
     h = num(h);
     let cap = false; if (h > 8) { h = 8; cap = true; }
     if (h <= 0) return { err: 'Please verify the start and end time.' };
-    return { h, cap };
+    return { h, cap, total: num(h * dates.length) };
   }
 
   function refresh() {
-    $('dateVal').innerHTML = (date ? fmtDate(date) : 'Select') + '<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
-    $('dateVal').classList.toggle('ph', !date);
+    $('dateVal').innerHTML = dateLabel() + '<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
+    $('dateVal').classList.toggle('ph', !dates.length);
     const r = calc(), note = $('note');
-    const base = 'Allowed time: 07:30 – 20:30, one day per application. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.';
-    const past = !!(date && $('start').value && new Date(`${date}T${$('start').value}`) < new Date());
+    const base = 'Allowed time: 07:30 – 20:30. You can pick several dates; the same time applies to each day and your manager can approve or reject each day separately. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.';
+    const now = new Date(), st = $('start').value;
+    const pastN = st ? dates.filter(d => new Date(`${d}T${st}`) < now).length : 0;
     let ok = false;
-    if (r.err) { $('change').textContent = '0 Hour'; note.className = 'note' + (date ? ' bad' : ''); note.textContent = date ? r.err : base; }
+    if (r.err) { $('change').textContent = '0 Hour'; note.className = 'note' + (dates.length ? ' bad' : ''); note.textContent = dates.length ? r.err : base; }
     else {
-      $('change').textContent = `${r.h} Hour${r.h === 1 ? '' : 's'}`;
+      $('change').textContent = `${r.total} Hour${r.total === 1 ? '' : 's'}` + (dates.length > 1 ? ` (${dates.length} × ${r.h})` : '');
       const avail = status ? num(status.remainingOT + (editId ? editHours : 0)) : null;
-      const after = avail !== null ? num(avail - r.h) : null;
+      const after = avail !== null ? num(avail - r.total) : null;
       const ov = overlapWith();
       if (ov) { note.className = 'note bad'; note.textContent = `You already have an OIL application for this time (${ov.start} - ${ov.end.slice(11)}, ${ov.status}). Please modify or cancel it first.`; }
-      else if (after !== null && after < 0) { note.className = 'note bad'; note.textContent = `Insufficient remaining OIL. Available: ${avail} hours.`; }
+      else if (after !== null && after < 0) { note.className = 'note bad'; note.textContent = `Insufficient remaining OIL. Requested ${r.total} hours, available ${avail} hours.`; }
       else {
-        note.className = 'note' + (past ? ' warn' : '');
-        note.textContent = (past ? '⚠ This time has already passed (post-application). OIL should be applied in advance, so please avoid post-applications unless absolutely necessary. ' : '') + (r.cap ? 'Maximum 8 hours per day applied. ' : '') + (after !== null ? `Remaining after use: ${after} hours.` : base);
+        note.className = 'note' + (pastN ? ' warn' : '');
+        note.textContent = (pastN ? `⚠ ${pastN > 1 ? pastN + ' of the selected dates have' : 'This time has'} already passed (post-application). OIL should be applied in advance, so please avoid post-applications unless absolutely necessary. ` : '') + (r.cap ? 'Maximum 8 hours per day applied. ' : '') + (after !== null ? `Remaining after use: ${after} hours.` : base);
         ok = after !== null;
       }
     }
     const btn = $('submit');
     btn.classList.toggle('loading', busy);
-    btn.textContent = busy ? (editId ? 'Saving…' : 'Applying…') : (editId ? 'Save Changes' : 'Apply OIL');
+    btn.textContent = busy ? (editId ? 'Saving…' : 'Applying…') : (editId ? 'Save Changes' : dates.length > 1 ? `Apply OIL (${dates.length} days)` : 'Apply OIL');
     btn.disabled = !ok || busy;
     $('applyTitle').textContent = editId ? 'Modify OIL' : 'Apply OIL';
   }
 
-  // an existing (not cancelled/rejected) application of mine that overlaps the chosen time
+  // my existing (not cancelled/rejected) application that overlaps one of the chosen days/times
   function overlapWith() {
-    if (!date || !status) return null;
+    if (!dates.length || !status) return null;
     const s = $('start').value, e = $('end').value;
-    return status.history.find(x => x.id !== editId && !INACTIVE.includes(x.status) && x.start.slice(0, 10) === date && s < x.end.slice(11) && e > x.start.slice(11)) || null;
+    return status.history.find(x => x.id !== editId && !INACTIVE.includes(x.status) && dates.includes(x.start.slice(0, 10)) && s < x.end.slice(11) && e > x.start.slice(11)) || null;
   }
   $('start').oninput = $('end').oninput = refresh;
 
   function fillApprover() { $('approver').textContent = (status && status.approver) || '-'; }
 
   /* ---------- calendar ---------- */
-  let pick = '';
+  let picks = [];   // dates ticked in the calendar (one only while modifying an existing request)
   function buildCal() {
     const now = new Date(), today = ymd(now), box = $('months'); box.innerHTML = '';
     for (let i = 0; i < 4; i++) {
@@ -345,18 +347,28 @@
         const key = `${f.getFullYear()}-${pad(f.getMonth()+1)}-${pad(d)}`;
         const c = document.createElement('div'); c.className = 'day';
         if (key === today) c.classList.add('today'); else if (key < today) c.classList.add('dim');
-        if (key === pick) c.classList.add('sel');
-        c.innerHTML = `<span>${key === today && key !== pick ? 'Today' : d}</span>`;
-        c.onclick = () => { pick = key; buildCal(); };
+        const on = picks.includes(key);
+        if (on) c.classList.add('sel');
+        if (on && !editId) c.classList.add('multi');
+        c.innerHTML = `<span>${key === today && !on ? 'Today' : d}</span>`;
+        c.onclick = () => {
+          const has = picks.includes(key);               // read the current state, not the one from when the cell was drawn
+          if (editId) picks = [key];
+          else if (has) picks = picks.filter(p => p !== key);
+          else if (picks.length >= MAX_DATES) { toast(`You can pick up to ${MAX_DATES} dates at a time.`, true); return; }
+          else picks = picks.concat(key).sort();
+          buildCal();
+        };
         g.appendChild(c);
       }
       box.appendChild(g);
     }
-    $('picked').textContent = pick ? fmtDate(pick) : '';
-    $('calDone').disabled = !pick;
+    $('picked').textContent = !picks.length ? (editId ? '' : 'Tap one or more dates') : picks.length === 1 ? fmtDate(picks[0]) : `${picks.length} dates selected`;
+    $('calDone').textContent = picks.length > 1 ? `Done (${picks.length})` : 'Done';
+    $('calDone').disabled = !picks.length;
   }
-  $('dateRow').onclick = () => { pick = date; buildCal(); go('cal'); const s = document.querySelector('.day.sel') || document.querySelector('.day.today'); s && s.scrollIntoView({ block: 'center' }); };
-  $('calDone').onclick = () => { if (!pick) return; date = pick; go('apply'); refresh(); };
+  $('dateRow').onclick = () => { picks = dates.slice(); buildCal(); go('cal'); const s = document.querySelector('.day.sel') || document.querySelector('.day.today'); s && s.scrollIntoView({ block: 'center' }); };
+  $('calDone').onclick = () => { if (!picks.length) return; dates = [...new Set(picks)].sort(); go('apply'); refresh(); };
 
   /* ---------- API ---------- */
   // SSO token is single-use: send it once, then use the server session it returns
@@ -433,35 +445,40 @@
     $('tabs').classList.toggle('on', !!d.isApprover);
     if (!d.isApprover) { setTab('mine'); return; }
     renderTeam(d);
-    $('aprBadge').textContent = d.approvals.length ? d.approvals.length : '';
-    $('aprList').innerHTML = d.approvals.length ? d.approvals.map((x, i) => `
-      <div class="item"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
-      <div class="d"><div class="t who">${x.applicant}${x.post ? '<span class="tagpost">Post-application</span>' : ''}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
-      <div class="act"><button class="no" data-i="${i}" data-a="reject">Reject</button><button class="ok" data-i="${i}" data-a="approve">Approve</button></div></div></div>`).join('')
-      : '<div class="empty">No applications waiting for your approval.</div>';
-    $('aprList').querySelectorAll('.act button').forEach(b => b.onclick = () => decide(d.approvals[+b.dataset.i], b.dataset.a, b));
+    // one card per request; a request made for several dates lists every date with its own Approve / Reject
+    const groups = d.approvals || [], cancels = d.cancels || [];
+    const rows = groups.reduce((n, g) => n + g.items.length, 0);
+    $('aprBadge').textContent = rows ? rows : '';
+    const tag = '<span class="tagpost">Post-application</span>';
+    $('aprList').innerHTML = (groups.length ? groups.map((g, gi) => `
+      <div class="grp"><div class="gh"><div class="t">${esc(g.applicant)}${g.post ? tag : ''}</div>
+      <div class="m">Applied ${g.appliedAt} · ${g.items.length > 1 ? g.items.length + ' days · ' : ''}${g.totalHours}h</div></div>
+      ${g.items.map((x, xi) => `<div class="gi"><div class="gd"><div><b>${x.start.slice(0, 10)}</b> ${x.start.slice(11)} - ${x.end.slice(11)}${x.post ? tag : ''}</div><span>${x.hours}h</span></div>
+        <div class="act"><button class="no" data-g="${gi}" data-i="${xi}" data-a="reject">Reject</button><button class="ok" data-g="${gi}" data-i="${xi}" data-a="approve">Approve</button></div></div>`).join('')}
+      </div>`).join('') : '<div class="empty">No applications waiting for your approval.</div>')
+      + (cancels.length ? `<div class="sec2">Cancellation requests · approved by ${esc(d.cancelApprover || 'the person in charge')}</div>` + cancels.map((x, ci) => `
+        <div class="creq" data-c="${ci}"><div class="t">${esc(x.applicant)}</div><div class="r">${x.start} - ${x.end.slice(11)} (${x.hours}h)</div><div class="m">Cancellation requested</div></div>`).join('') : '');
+    $('aprList').querySelectorAll('.act button').forEach(b => b.onclick = () => { const g = groups[+b.dataset.g]; decide(g, g.items[+b.dataset.i], b.dataset.a, b); });
+    $('aprList').querySelectorAll('.creq').forEach(el => el.onclick = () => {
+      const x = cancels[+el.dataset.c];
+      ask(`Cancellation request\n${x.applicant}\n${x.start} - ${x.end.slice(11)} (${x.hours}h)\nRequested ${x.requestedAt}\nReason: ${x.reason || '–'}\n\nThis request is approved by ${d.cancelApprover || 'the person in charge'}.`, { alert: true });
+    });
   }
 
-  async function decide(x, action, btn) {
+  async function decide(g, x, action, btn) {
     if (busy) return;
-    if (action === 'approve') {
-      if (!(await ask(`Approve this OIL application?\n${x.applicant}\n${x.start} - ${x.end.slice(11)} (${x.hours}h)\nReason: ${x.reason || '–'}`, { yes: 'Approve' }))) return;
-      await runDecision(x, 'approve', '', btn);
-    } else {
-      $('rejMeta').innerHTML = `${esc(x.applicant)}<br>${x.start} - ${x.end.slice(11)} (${x.hours}h) · the hours will be refunded<br>Reason: ${esc(x.reason || '–')}`;
-      $('rejReason').value = ''; $('rejMask').classList.add('on');
-      $('rejOk').onclick = async () => { const reason = $('rejReason').value.trim(); $('rejMask').classList.remove('on'); await runDecision(x, 'reject', reason, btn); };
-    }
+    const what = `${g.applicant}\n${x.start} - ${x.end.slice(11)} (${x.hours}h)`;
+    const q = action === 'approve' ? `Approve this OIL application?\n${what}` : `Reject this OIL application?\n${what}\nThe hours will be refunded.`;
+    if (!(await ask(q, { yes: action === 'approve' ? 'Approve' : 'Reject' }))) return;
+    await runDecision(x, action, btn);
   }
-  $('rejClose').onclick = () => $('rejMask').classList.remove('on');
-  $('rejMask').onclick = e => { if (e.target.id === 'rejMask') $('rejMask').classList.remove('on'); };
 
-  async function runDecision(x, action, reason, btn) {
+  async function runDecision(x, action, btn) {
     busy = true;
     document.querySelectorAll('#aprList .act button').forEach(b => b.disabled = true);
     btn.classList.add('loading');
     try {
-      await api({ action, id: x.id, reason });
+      await api({ action, id: x.id });
       toast(action === 'approve' ? 'Approved' : 'Rejected · hours refunded');
       await reload();
     } catch (err) {
@@ -489,15 +506,16 @@
     current = x;
     const req = x.cancelMode === 'request';
     $('shTitle').textContent = x.status === 'Pending' ? 'OIL · Pending approval' : 'OIL · Approved';
-    $('shMeta').innerHTML = `${x.start} - ${x.end.slice(11)} (${x.hours}h)<br>Applied ${x.appliedAt}` + (x.reason ? `<br>Reason: ${esc(x.reason)}` : '');
+    $('shMeta').innerHTML = `${x.start} - ${x.end.slice(11)} (${x.hours}h)<br>Applied ${x.appliedAt}`;
     $('shEdit').style.display = x.editable ? '' : 'none';
     $('shHint').textContent = x.status === 'Pending' ? ''
       : req ? `This period has already started or passed. Cancelling needs approval from ${(status && status.cancelApprover) || 'the person in charge'}, and your hours stay deducted until it is approved.`
             : 'This period has not started yet. Cancelling takes effect right away and the hours are refunded.';
     $('shHint').style.display = $('shHint').textContent ? '' : 'none';
+    // a reason can be left only when cancelling a period that has already started or passed (optional)
     $('shReason').value = '';
-    $('shReason').placeholder = req ? 'Reason for cancellation (required)' : 'Reason (optional)';
-    $('shReason').style.display = x.status === 'Pending' ? 'none' : '';
+    $('shReason').placeholder = 'Reason (optional, shown to your manager)';
+    $('shReason').style.display = req ? '' : 'none';
     $('shCancel').textContent = req ? 'Request Cancellation' : 'Cancel Application';
     $('sheetMask').classList.add('on');
   }
@@ -506,13 +524,11 @@
   $('sheetMask').onclick = e => { if (e.target.id === 'sheetMask') closeSheet(); };
   $('shEdit').onclick = () => {
     closeSheet(); editId = current.id; editHours = +current.hours;
-    date = current.start.slice(0, 10); $('start').value = current.start.slice(11); $('end').value = current.end.slice(11);
-    $('reason').value = current.reason || ''; $('reasonCnt').textContent = `${$('reason').value.length}/120`;
+    dates = [current.start.slice(0, 10)]; $('start').value = current.start.slice(11); $('end').value = current.end.slice(11);
     fillApprover(); go('apply'); refresh();
   };
   $('shCancel').onclick = async () => {
-    const x = current, reason = $('shReason').value.trim(), req = x.cancelMode === 'request';
-    if (req && !reason) { $('shReason').focus(); toast('Please enter a reason for the cancellation.', true); return; }
+    const x = current, req = x.cancelMode === 'request', reason = req ? $('shReason').value.trim() : '';
     closeSheet();
     const range = `${x.start} - ${x.end.slice(11)} (${x.hours}h)`;
     const q = req
@@ -537,19 +553,25 @@
 
   $('submit').onclick = async () => {
     const r = calc(); if (r.err) return;
-    const s = $('start').value, e = $('end').value;
-    const post = new Date(`${date}T${s}`) < new Date();
-    const msg = (post ? '⚠ Post-application\nThis time has already passed. OIL must be applied in advance unless absolutely necessary.\n\n' : '') + `${fmtDate(date)}\n${s} – ${e}\n${r.h} hour${r.h === 1 ? '' : 's'} will be ${editId ? 'applied (replacing the pending application)' : 'deducted'}.`;
+    const s = $('start').value, e = $('end').value, now = new Date();
+    const pastN = dates.filter(d => new Date(`${d}T${s}`) < now).length, post = pastN > 0;
+    const many = dates.length > 1;
+    const msg = (post ? `⚠ Post-application\n${many ? pastN + ' of the selected dates have' : 'This time has'} already passed. OIL must be applied in advance unless absolutely necessary.\n\n` : '')
+      + (many ? dates.map(fmtDate).join('\n') : fmtDate(dates[0])) + `\n${s} – ${e}\n`
+      + (many ? `${r.h} hours × ${dates.length} days = ${r.total} hours` : `${r.h} hour${r.h === 1 ? '' : 's'}`) + ` will be ${editId ? 'applied (replacing the pending application)' : 'deducted'}.`
+      + (many ? '\nYour manager gets one request and can approve or reject each day separately.' : '');
     if (!(await ask(msg, { yes: post ? 'Apply anyway' : (editId ? 'Save' : 'Apply'), no: post ? 'Go back' : 'Cancel' }))) return;
     busy = true; refresh();
     let done = false;
     try {
-      const body = { action: editId ? 'modify' : 'submit', start: `${date}T${s}`, end: `${date}T${e}`, reason: $('reason').value.trim() };
-      if (editId) body.id = editId;
+      const body = editId
+        ? { action: 'modify', id: editId, start: `${dates[0]}T${s}`, end: `${dates[0]}T${e}` }
+        : { action: 'submit', dates: dates.slice(), startTime: s, endTime: e };
       const out = await api(body);
       done = true;
-      toast(`${editId ? 'Updated' : 'Applied'} ${out.usage}h · Remaining ${out.remaining}h`);
-      editId = ''; editHours = 0; date = '';
+      const n = out.count || 1, hrsTotal = out.total != null ? out.total : out.usage;
+      toast(`${editId ? 'Updated' : 'Applied'} ${n > 1 ? n + ' days · ' : ''}${hrsTotal}h · Remaining ${out.remaining}h`);
+      editId = ''; editHours = 0; dates = [];
       go('home');
       await reload();   // a refresh failure must not look like a failed application
     } catch (err) {
