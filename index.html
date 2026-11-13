@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '7';
+    var BUILD = '8';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -109,7 +109,7 @@
   /* status + history actions */
   .item.tap { cursor:pointer; } .item.tap:active { background:var(--bg-sub); }
   .item .s { font-weight:500; display:flex; align-items:center; gap:4px; }
-  .item .s.pending { color:#f59e0b; } .item .s.approved { color:var(--green); } .item .s.rejected { color:var(--red); } .item .s.cancelled { color:var(--sub); }
+  .item .s.pending, .item .s.cancel-requested { color:#f59e0b; } .item .s.approved { color:var(--green); } .item .s.rejected { color:var(--red); } .item .s.cancelled { color:var(--sub); }
   .item .s .chev { width:14px; height:14px; stroke:var(--sub); }
   .item.dimmed .r,.item.dimmed .n { opacity:.55; }
   /* ring spinner (same design as the shared Progress component) */
@@ -180,7 +180,7 @@
   <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v7</div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v8</div></div>
 </section>
 
 <!-- APPLY -->
@@ -210,6 +210,8 @@
 
 <div class="sheetmask" id="sheetMask"><div class="sheet">
   <h3 id="shTitle">OIL</h3><div class="meta" id="shMeta"></div>
+  <div class="meta" id="shHint" style="display:none"></div>
+  <textarea id="shReason" maxlength="300" style="display:none"></textarea>
   <button class="main" id="shEdit">Modify</button>
   <button class="danger" id="shCancel">Cancel Application</button>
   <button id="shClose">Close</button>
@@ -374,9 +376,9 @@
     $('total').textContent = num(d.appliedOT + d.remainingOT);
     const chev = '<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
     $('hist').innerHTML = d.history.length ? d.history.map((x, i) => `
-      <div class="item${x.editable ? ' tap' : ''}${INACTIVE.includes(x.status) ? ' dimmed' : ''}" data-i="${i}"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
+      <div class="item${x.editable || x.cancelMode ? ' tap' : ''}${INACTIVE.includes(x.status) ? ' dimmed' : ''}" data-i="${i}"><div class="n"><b>${x.hours}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
       <div class="d"><div class="t">OIL${x.post ? '<span class="tagpost">Post-application</span>' : ''}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
-      <div class="s ${x.status.toLowerCase()}">${x.status === 'Pending' ? 'Pending approval' : x.status}${x.editable ? chev : ''}</div></div></div>`).join('')
+      <div class="s ${x.status.toLowerCase().replace(/\s+/g, '-')}">${x.status === 'Pending' ? 'Pending approval' : x.status === 'Cancel Requested' ? 'Cancellation pending approval' : x.status}${x.editable || x.cancelMode ? chev : ''}</div></div></div>`).join('')
       : '<div class="empty">No application history.</div>';
     $('hist').querySelectorAll('.item.tap').forEach(el => el.onclick = () => openSheet(d.history[+el.dataset.i]));
     $('goApply').disabled = false;
@@ -479,8 +481,18 @@
   let current = null;
   function openSheet(x) {
     current = x;
-    $('shTitle').textContent = 'OIL · Pending approval';
+    const req = x.cancelMode === 'request';
+    $('shTitle').textContent = x.status === 'Pending' ? 'OIL · Pending approval' : 'OIL · Approved';
     $('shMeta').innerHTML = `${x.start} - ${x.end.slice(11)} (${x.hours}h)<br>Applied ${x.appliedAt}`;
+    $('shEdit').style.display = x.editable ? '' : 'none';
+    $('shHint').textContent = x.status === 'Pending' ? ''
+      : req ? `This period has already started or passed. Cancelling needs approval from ${(status && status.cancelApprover) || 'the person in charge'}, and your hours stay deducted until it is approved.`
+            : 'This period has not started yet. Cancelling takes effect right away and the hours are refunded.';
+    $('shHint').style.display = $('shHint').textContent ? '' : 'none';
+    $('shReason').value = '';
+    $('shReason').placeholder = req ? 'Reason for cancellation (required)' : 'Reason (optional)';
+    $('shReason').style.display = x.status === 'Pending' ? 'none' : '';
+    $('shCancel').textContent = req ? 'Request Cancellation' : 'Cancel Application';
     $('sheetMask').classList.add('on');
   }
   const closeSheet = () => $('sheetMask').classList.remove('on');
@@ -492,13 +504,21 @@
     fillApprover(); go('apply'); refresh();
   };
   $('shCancel').onclick = async () => {
+    const x = current, reason = $('shReason').value.trim(), req = x.cancelMode === 'request';
+    if (req && !reason) { $('shReason').focus(); toast('Please enter a reason for the cancellation.', true); return; }
     closeSheet();
-    if (!(await ask(`Cancel this application?\n${current.start} - ${current.end.slice(11)} (${current.hours}h)\nThe hours will be refunded.`, { yes: 'Cancel Application', no: 'Keep' }))) return;
-    try {
-      const out = await withBusy('Cancelling…', () => api({ action: 'cancel', id: current.id }));
-      toast(`Cancelled · Remaining ${out.remaining}h`);
-      await reload();
-    } catch (err) { await ask(err.message, { alert: true }); }
+    const range = `${x.start} - ${x.end.slice(11)} (${x.hours}h)`;
+    const q = req
+      ? `Request cancellation?\n${range}\nThe person in charge will be asked to approve. Your hours stay deducted until it is approved.`
+      : `Cancel this application?\n${range}\nThe hours will be refunded.`;
+    if (!(await ask(q, { yes: req ? 'Send request' : 'Cancel Application', no: 'Keep' }))) return;
+    let out;
+    try { out = await withBusy(req ? 'Sending request…' : 'Cancelling…', () => api({ action: 'cancel', id: x.id, reason })); }
+    catch (err) { await ask(err.message, { alert: true }); return; }
+    await ask(out.mode === 'request'
+      ? `Cancellation request sent.\n${out.approver} has been emailed for approval. Your OIL stays deducted until it is approved. You will be notified by email.`
+      : `Cancelled.\n${out.usage} hours were refunded.\nRemaining OIL: ${out.remaining} hours.`, { alert: true });
+    await reload();
   };
 
   // full-screen busy overlay for actions that start outside the form button
