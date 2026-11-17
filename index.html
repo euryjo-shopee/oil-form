@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '11';
+    var BUILD = '14';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -80,6 +80,9 @@
   .grp .gi { margin:10px 0; padding:10px 12px; background:var(--bg-sub); border-radius:10px; }
   .grp .gd { display:flex; justify-content:space-between; gap:8px; font-size:15px; } .grp .gd b { font-weight:600; } .grp .gd span { color:var(--blue); font-weight:600; white-space:nowrap; }
   .grp .gi .act { margin-top:8px; }
+  .grp .gi.dim { opacity:.55; }
+  .grp .gs { margin-top:4px; font-size:13px; font-weight:600; }
+  .grp .gs.approved { color:var(--green); } .grp .gs.pending, .grp .gs.cancel-requested { color:#f59e0b; } .grp .gs.rejected { color:var(--red); } .grp .gs.cancelled { color:var(--sub); }
   .sec2 { margin-top:6px; background:var(--bg-sub); color:var(--sub); font-size:13px; padding:8px 16px; }
   .creq { padding:12px 16px; border-bottom:1px solid var(--line); cursor:pointer; } .creq:active { background:var(--bg-sub); }
   .creq .t { font-weight:600; word-break:break-all; } .creq .r { font-size:15px; margin-top:2px; } .creq .m { color:#f59e0b; font-size:13px; font-weight:600; margin-top:2px; }
@@ -190,7 +193,7 @@
   <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v11</div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v14</div></div>
 </section>
 
 <!-- APPLY -->
@@ -200,12 +203,12 @@
     <span class="l">OIL Date</span>
     <span class="v ph" id="dateVal">Select<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></span>
   </button>
-  <div class="row"><label class="l" for="start">Start Time</label><span class="v"><input type="time" id="start" value="09:00"></span></div>
-  <div class="row"><label class="l" for="end">End Time</label><span class="v"><input type="time" id="end" value="18:00"></span></div>
+  <div class="row"><label class="l" for="start">Start Time</label><span class="v"><input type="time" id="start" value="09:00" step="600"></span></div>
+  <div class="row"><label class="l" for="end">End Time</label><span class="v"><input type="time" id="end" value="18:00" step="600"></span></div>
   <div class="row"><span class="l">Balance Change</span><span class="v" id="change">0 Hour</span></div>
   <div class="gap"></div>
-  <div class="row"><span class="l">Approver(s)</span><span class="v" id="approver">-</span></div>
-  <div class="note" id="note">Allowed time: 07:30 – 20:30. You can pick several dates; the same time applies to each day and your manager can approve or reject each day separately. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.</div>
+  <div class="row"><span class="l">Notified</span><span class="v" id="approver">-</span></div>
+  <div class="note" id="note">Allowed time: 07:30 – 20:30, in 10-minute units. You can pick several dates; the same time applies to each day. No approval is needed: your manager and the HR team are notified by email. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.</div>
   <div class="spacer"></div>
   <div class="foot"><button class="primary" id="submit" disabled>Apply OIL</button></div>
 </section>
@@ -284,6 +287,7 @@
     if (!s || !e) return { err: 'Please enter start and end time.' };
     const m = t => +t.slice(0,2) * 60 + +t.slice(3,5);
     const a = m(s), b = m(e);
+    if (a % 10 || b % 10) return { err: 'Please enter time in 10-minute units (e.g. 09:00, 09:10).' };
     if (a < 450 || a > 1230 || b < 450 || b > 1230) return { err: 'Time must be between 07:30 and 20:30.' };
     let h = (b - a) / 60;
     if (h <= 0) return { err: 'End time must be later than start time.' };
@@ -298,7 +302,7 @@
     $('dateVal').innerHTML = dateLabel() + '<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
     $('dateVal').classList.toggle('ph', !dates.length);
     const r = calc(), note = $('note');
-    const base = 'Allowed time: 07:30 – 20:30. You can pick several dates; the same time applies to each day and your manager can approve or reject each day separately. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.';
+    const base = 'Allowed time: 07:30 – 20:30, in 10-minute units. You can pick several dates; the same time applies to each day. No approval is needed: your manager and the HR team are notified by email. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.';
     const now = new Date(), st = $('start').value;
     const pastN = st ? dates.filter(d => new Date(`${d}T${st}`) < now).length : 0;
     let ok = false;
@@ -412,7 +416,7 @@
     $('aprList').style.display = t === 'apr' ? '' : 'none';
     $('teamList').style.display = t === 'team' ? '' : 'none';
     $('tabMine').classList.toggle('on', t === 'mine'); $('tabApr').classList.toggle('on', t === 'apr'); $('tabTeam').classList.toggle('on', t === 'team');
-    $('histTitle').textContent = { mine: 'Application History', apr: 'Pending Approvals', team: 'Team OIL Balance' }[t];
+    $('histTitle').textContent = { mine: 'Application History', apr: 'Team Applications', team: 'Team OIL Balance' }[t];
   }
   $('tabMine').onclick = () => setTab('mine');
   $('tabApr').onclick = () => setTab('apr');
@@ -445,20 +449,21 @@
     $('tabs').classList.toggle('on', !!d.isApprover);
     if (!d.isApprover) { setTab('mine'); return; }
     renderTeam(d);
-    // one card per request; a request made for several dates lists every date with its own Approve / Reject
+    // no approval step any more: read-only overview of the team's applications (one card per request, every date with its status)
     const groups = d.approvals || [], cancels = d.cancels || [];
-    const rows = groups.reduce((n, g) => n + g.items.length, 0);
-    $('aprBadge').textContent = rows ? rows : '';
+    $('aprBadge').textContent = cancels.length ? cancels.length : '';
     const tag = '<span class="tagpost">Post-application</span>';
-    $('aprList').innerHTML = (groups.length ? groups.map((g, gi) => `
-      <div class="grp"><div class="gh"><div class="t">${esc(g.applicant)}${g.post ? tag : ''}</div>
-      <div class="m">Applied ${g.appliedAt} · ${g.items.length > 1 ? g.items.length + ' days · ' : ''}${g.totalHours}h</div></div>
-      ${g.items.map((x, xi) => `<div class="gi"><div class="gd"><div><b>${x.start.slice(0, 10)}</b> ${x.start.slice(11)} - ${x.end.slice(11)}${x.post ? tag : ''}</div><span>${x.hours}h</span></div>
-        <div class="act"><button class="no" data-g="${gi}" data-i="${xi}" data-a="reject">Reject</button><button class="ok" data-g="${gi}" data-i="${xi}" data-a="approve">Approve</button></div></div>`).join('')}
-      </div>`).join('') : '<div class="empty">No applications waiting for your approval.</div>')
-      + (cancels.length ? `<div class="sec2">Cancellation requests · approved by ${esc(d.cancelApprover || 'the person in charge')}</div>` + cancels.map((x, ci) => `
-        <div class="creq" data-c="${ci}"><div class="t">${esc(x.applicant)}</div><div class="r">${x.start} - ${x.end.slice(11)} (${x.hours}h)</div><div class="m">Cancellation requested</div></div>`).join('') : '');
-    $('aprList').querySelectorAll('.act button').forEach(b => b.onclick = () => { const g = groups[+b.dataset.g]; decide(g, g.items[+b.dataset.i], b.dataset.a, b); });
+    const label = x => x.system ? 'Error · rejected' : x.status === 'Cancel Requested' ? 'Cancellation requested' : x.status === 'Pending' ? 'Pending' : x.status;
+    $('aprList').innerHTML =
+      (cancels.length ? `<div class="sec2">Cancellation requests · approved by ${esc(d.cancelApprover || 'the person in charge')}</div>` + cancels.map((x, ci) => `
+        <div class="creq" data-c="${ci}"><div class="t">${esc(x.applicant)}</div><div class="r">${x.start} - ${x.end.slice(11)} (${x.hours}h)</div><div class="m">Cancellation requested</div></div>`).join('') : '')
+      + `<div class="sec2">Team applications</div>`
+      + (groups.length ? groups.map(g => `
+        <div class="grp"><div class="gh"><div class="t">${esc(g.applicant)}${g.post ? tag : ''}</div>
+        <div class="m">Applied ${g.appliedAt} · ${g.items.length > 1 ? g.items.length + ' days · ' : ''}${g.totalHours}h</div></div>
+        ${g.items.map(x => `<div class="gi${x.status === 'Cancelled' || x.status === 'Rejected' ? ' dim' : ''}"><div class="gd"><div><b>${x.start.slice(0, 10)}</b> ${x.start.slice(11)} - ${x.end.slice(11)}${x.post ? tag : ''}</div><span>${x.hours}h</span></div>
+          <div class="gs ${x.status.toLowerCase().replace(/\s+/g, '-')}">${label(x)}</div></div>`).join('')}
+        </div>`).join('') : '<div class="empty">No applications from your team yet.</div>');
     $('aprList').querySelectorAll('.creq').forEach(el => el.onclick = () => {
       const x = cancels[+el.dataset.c];
       ask(`Cancellation request\n${x.applicant}\n${x.start} - ${x.end.slice(11)} (${x.hours}h)\nRequested ${x.requestedAt}\nReason: ${x.reason || '–'}\n\nThis request is approved by ${d.cancelApprover || 'the person in charge'}.`, { alert: true });
@@ -561,7 +566,7 @@
     const msg = (post ? `⚠ Post-application\n${many ? pastN + ' of the selected dates have' : 'This time has'} already passed. OIL must be applied in advance unless absolutely necessary.\n\n` : '')
       + (many ? dates.map(fmtDate).join('\n') : fmtDate(dates[0])) + `\n${s} – ${e}\n`
       + (many ? `${r.h} hours × ${dates.length} days = ${r.total} hours` : `${r.h} hour${r.h === 1 ? '' : 's'}`) + ` will be ${editId ? 'applied (replacing the pending application)' : 'deducted'}.`
-      + (many ? '\nYour manager gets one request and can approve or reject each day separately.' : '');
+      + '\nIt is approved right away. Your manager and the HR team are notified by email.';
     if (!(await ask(msg, { yes: post ? 'Apply anyway' : (editId ? 'Save' : 'Apply'), no: post ? 'Go back' : 'Cancel' }))) return;
     busy = true; refresh();
     let done = false;
