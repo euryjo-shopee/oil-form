@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '18';
+    var BUILD = '20';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -159,6 +159,8 @@
   .mem .bar2 { height:6px; border-radius:3px; background:var(--bg-sub); margin-top:8px; overflow:hidden; } .mem .bar2 i { display:block; height:100%; background:var(--blue); border-radius:3px; }
   .mem .meta { color:var(--label); font-size:12px; margin-top:6px; } .mem .meta em { font-style:normal; color:#f59e0b; font-weight:600; }
   .mem .rem { text-align:center; min-width:64px; } .mem .rem b { display:block; font-size:26px; font-weight:500; color:var(--blue); line-height:1.1; } .mem .rem span { font-size:12px; color:var(--label); }
+  #home.stale .balcard, #home.stale #hist { opacity:.6; transition:opacity .2s; }
+  .notice { position:relative; z-index:2; margin:10px 16px 0; padding:8px 12px; border-radius:10px; background:rgba(255,255,255,.94); color:#8a4b00; font-size:13px; line-height:1.35; text-align:center; font-weight:500; }
   .ver { text-align:center; color:var(--sub); font-size:11px; padding:6px 0 0; }
 
   /* loading button */
@@ -181,6 +183,7 @@
 <!-- HOME -->
 <section class="view on" id="home">
   <div class="hero"></div>
+  <div class="notice" id="notice">We recommend continuing to use the existing sheet until the official launch.</div>
   <div class="balcard">
     <div class="big" id="remain"><span class="spinner lg" role="status" aria-label="Loading"></span></div>
     <div class="cap">OIL Balance (Hour)</div>
@@ -194,7 +197,7 @@
   <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v18<br>불편사항 문의: <span id="contact">eury.jo@shopee.com</span></div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v20<br>Questions or issues? Contact <span id="contact">sol.lee@shopee.com</span></div></div>
 </section>
 
 <!-- APPLY -->
@@ -413,6 +416,7 @@
 
   function render(d) {
     status = d;
+    if ('notice' in d) { $('notice').textContent = d.notice || ''; $('notice').style.display = d.notice ? '' : 'none'; }   // banner text comes from the server (script property NOTICE_TEXT; "-" hides it)
     if (d.contactEmail) $('contact').textContent = d.contactEmail;   // set on the server (script property CONTACT_EMAIL), so no page update is needed when the contact changes
     $('remain').textContent = h1(d.remainingOT);
     $('applied').textContent = h1(d.appliedOT);
@@ -516,12 +520,41 @@
     btn.classList.remove('loading'); busy = false;
   }
 
+  /* ---------- fast first screen: last known data is shown at once, fresh data replaces it ---------- */
+  const CACHE_KEY = 'oil.last.v1';
+  function readCache() {
+    try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); return c && c.d && Array.isArray(c.d.history) ? c.d : null; } catch (e) { return null; }
+  }
+  function writeCache(d) {   // only the employee's own balance and history (no team or leader data)
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), d: { email: d.email, approver: d.approver, cancelApprover: d.cancelApprover, contactEmail: d.contactEmail, notice: d.notice, region: d.region, endTime: d.endTime, appliedOT: d.appliedOT, remainingOT: d.remainingOT, history: d.history } })); } catch (e) {}
+  }
+  function applyStatus(d) { render(d); writeCache(d); }
+
+  // after the first screen: ask the server to pull new requests from the existing sheets (does not block the screen)
+  async function bgIntake() {
+    try {
+      const r = await api({ action: 'intake' });
+      if (r && r.changed) applyStatus(await api({ action: 'status' }));
+    } catch (e) { /* silent: the 5-minute server job and the check at submit time still cover it */ }
+  }
+
   async function load() {
-    $('hist').innerHTML = '<div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div>';
-    $('remain').innerHTML = '<span class="spinner lg" role="status" aria-label="Loading"></span>';
-    $('applied').textContent = $('total').textContent = '-';
-    try { render(await api({ action: 'status' })); }
-    catch (e) {
+    const cached = readCache();
+    if (cached) { render(cached); $('home').classList.add('stale'); }
+    else {
+      $('hist').innerHTML = '<div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div>';
+      $('remain').innerHTML = '<span class="spinner lg" role="status" aria-label="Loading"></span>';
+      $('applied').textContent = $('total').textContent = '-';
+    }
+    try {
+      const d = await api({ action: 'status' });
+      $('home').classList.remove('stale');
+      applyStatus(d);
+      if (d.timing) console.log('OIL status timing (ms, cumulative)', d.timing);
+      bgIntake();
+    } catch (e) {
+      $('home').classList.remove('stale');
+      if (cached) { toast('Could not refresh. Showing your last saved data.', true); return; }
       $('remain').textContent = '-';
       $('hist').innerHTML = `<div class="loadbox"><div>${(e && e.message) || 'Please open this app inside SeaTalk.'}</div><button class="retry" id="retry">Retry</button></div>`;
       $('retry').onclick = load;
@@ -577,7 +610,7 @@
     toast(label); busy = true;
     try { return await fn(); } finally { busy = false; }
   }
-  async function reload() { try { render(await api({ action: 'status' })); } catch (e) { toast('Done, but the list could not be refreshed. Tap ↻ to reload.', true); } }
+  async function reload() { try { applyStatus(await api({ action: 'status' })); } catch (e) { toast('Done, but the list could not be refreshed. Tap ↻ to reload.', true); } }
 
   $('submit').onclick = async () => {
     const r = calc(); if (r.err) return;
