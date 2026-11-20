@@ -10,7 +10,7 @@
   // Stale-cache guard: the SeaTalk webview may serve an old cached copy of this page.
   // On every entry, compare BUILD with the latest published index.html and reload with a new query if they differ.
   (function () {
-    var BUILD = '20';
+    var BUILD = '21';
     try {
       fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
         var m = t.match(/var BUILD = '([^']+)'/);
@@ -83,7 +83,7 @@
   .grp .gi .act { margin-top:8px; }
   .grp .gi.dim { opacity:.55; }
   .grp .gs { margin-top:4px; font-size:13px; font-weight:600; }
-  .grp .gs.approved { color:var(--green); } .grp .gs.pending, .grp .gs.cancel-requested { color:#f59e0b; } .grp .gs.rejected { color:var(--red); } .grp .gs.cancelled { color:var(--sub); }
+  .grp .gs.approved { color:var(--green); } .grp .gs.pending, .grp .gs.cancel-requested, .grp .gs.modify-requested { color:#f59e0b; } .grp .gs.rejected { color:var(--red); } .grp .gs.cancelled { color:var(--sub); }
   .sec2 { margin-top:6px; background:var(--bg-sub); color:var(--sub); font-size:13px; padding:8px 16px; }
   .creq { padding:12px 16px; border-bottom:1px solid var(--line); cursor:pointer; } .creq:active { background:var(--bg-sub); }
   .creq .t { font-weight:600; word-break:break-all; } .creq .r { font-size:15px; margin-top:2px; } .creq .m { color:#f59e0b; font-size:13px; font-weight:600; margin-top:2px; }
@@ -123,7 +123,7 @@
   /* status + history actions */
   .item.tap { cursor:pointer; } .item.tap:active { background:var(--bg-sub); }
   .item .s { font-weight:500; display:flex; align-items:center; gap:4px; }
-  .item .s.pending, .item .s.cancel-requested { color:#f59e0b; } .item .s.approved { color:var(--green); } .item .s.rejected { color:var(--red); } .item .s.cancelled { color:var(--sub); }
+  .item .s.pending, .item .s.cancel-requested, .item .s.modify-requested { color:#f59e0b; } .item .s.approved { color:var(--green); } .item .s.rejected { color:var(--red); } .item .s.cancelled { color:var(--sub); }
   .item .s .chev { width:14px; height:14px; stroke:var(--sub); }
   .item.dimmed .r,.item.dimmed .n { opacity:.55; }
   /* ring spinner (same design as the shared Progress component) */
@@ -197,7 +197,7 @@
   <div class="hist" id="aprList" style="display:none"></div>
   <div class="hist" id="teamList" style="display:none"></div>
   <div class="hist" id="hist"><div class="loadbox"><span class="spinner" role="status" aria-label="Loading"></span><div>Loading your OIL data…</div></div></div>
-  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v20<br>Questions or issues? Contact <span id="contact">sol.lee@shopee.com</span></div></div>
+  <div class="foot"><button class="primary" id="goApply" disabled>Apply OIL</button><div class="ver">v21<br>Questions or issues? Contact <span id="contact">sol.lee@shopee.com</span></div></div>
 </section>
 
 <!-- APPLY -->
@@ -247,6 +247,7 @@
   const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   let busy = false, status = null, dates = [], view = 'home', editId = '', editHours = 0;
+  let editMode = '', editReason = '', editOrig = null;   // editMode 'request' = change request for a request that has already started or passed (needs approval)
   const MAX_DATES = 20;
   const INACTIVE = ['Cancelled', 'Rejected'];
   const pad = n => String(n).padStart(2, '0');
@@ -278,12 +279,12 @@
   function go(v) { view = v; document.querySelectorAll('.view').forEach(e => e.classList.toggle('on', e.id === v)); window.scrollTo(0, 0); }
   function back() {
     if (view === 'cal') return go('apply');
-    if (view === 'apply') { editId = ''; editHours = 0; return go('home'); }
+    if (view === 'apply') { editId = ''; editHours = 0; editMode = ''; editReason = ''; editOrig = null; return go('home'); }
     try { SDK.navigateBack && SDK.navigateBack(); } catch (e) {}
   }
   $('applyBack').onclick = back;
   $('calClose').onclick = () => go('apply');
-  $('goApply').onclick = () => { editId = ''; editHours = 0; dates = []; fillApprover(); go('apply'); refresh(); };
+  $('goApply').onclick = () => { editId = ''; editHours = 0; editMode = ''; editReason = ''; editOrig = null; dates = []; setT('start', '09:00'); setT('end', '18:00'); fillApprover(); go('apply'); refresh(); };
 
   /* ---------- helpers ---------- */
   let tt;
@@ -327,7 +328,7 @@
     const r = calc(), note = $('note');
     const base = `Allowed time: 07:30 – ${(status && status.endTime) || '20:30'}, in 10-minute units. You can pick several dates; the same time applies to each day. No approval is needed: your manager and the HR team are notified by email. Maximum 8 hours per day; if the time is over 4 hours and overlaps 12:00–13:00, 1 hour is deducted. OIL should be applied in advance. Using OIL does not change WFH clock-out reminders; the People team compiles attendance monthly.`;
     const now = new Date(), st = $('start').value;
-    const pastN = st ? dates.filter(d => new Date(`${d}T${st}`) < now).length : 0;
+    const pastN = (st && editMode !== 'request') ? dates.filter(d => new Date(`${d}T${st}`) < now).length : 0;   // no "post-application" warning when changing an existing request
     let ok = false;
     if (r.err) { $('change').textContent = '0 Hour'; note.className = 'note' + (dates.length ? ' bad' : ''); note.textContent = dates.length ? r.err : base; }
     else {
@@ -345,9 +346,9 @@
     }
     const btn = $('submit');
     btn.classList.toggle('loading', busy);
-    btn.textContent = busy ? (editId ? 'Saving…' : 'Applying…') : (editId ? 'Save Changes' : dates.length > 1 ? `Apply OIL (${dates.length} days)` : 'Apply OIL');
+    btn.textContent = busy ? (editId ? (editMode === 'request' ? 'Sending…' : 'Saving…') : 'Applying…') : (editId ? (editMode === 'request' ? 'Request Modification' : 'Save Changes') : dates.length > 1 ? `Apply OIL (${dates.length} days)` : 'Apply OIL');
     btn.disabled = !ok || busy;
-    $('applyTitle').textContent = editId ? 'Modify OIL' : 'Apply OIL';
+    $('applyTitle').textContent = editId ? (editMode === 'request' ? 'Request Modification' : 'Modify OIL') : 'Apply OIL';
   }
 
   // my existing (not cancelled/rejected) application that overlaps one of the chosen days/times
@@ -424,8 +425,8 @@
     const chev = '<svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
     $('hist').innerHTML = d.history.length ? d.history.map((x, i) => `
       <div class="item${x.editable || x.cancelMode ? ' tap' : ''}${INACTIVE.includes(x.status) ? ' dimmed' : ''}" data-i="${i}"><div class="n"><b>${h1(x.hours)}</b><span>${x.hours == 1 ? 'Hour' : 'Hours'}</span></div>
-      <div class="d"><div class="t">OIL${x.post ? '<span class="tagpost">Post-application</span>' : ''}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>
-      <div class="s ${x.status.toLowerCase().replace(/\s+/g, '-')}">${x.system ? 'Error · rejected (approver unavailable)' : x.status === 'Pending' ? 'Pending approval' : x.status === 'Cancel Requested' ? 'Cancellation pending approval' : x.status}${x.editable || x.cancelMode ? chev : ''}</div></div></div>`).join('')
+      <div class="d"><div class="t">OIL${x.post ? '<span class="tagpost">Post-application</span>' : ''}</div><div class="r">${x.start} - ${x.end.slice(11)}</div><div class="m">Applied ${x.appliedAt}</div>${x.req ? `<div class="m">Requested change: ${x.req.start.slice(0, 10)} ${x.req.start.slice(11)} - ${x.req.end.slice(11)} (${h1(x.req.hours)}h)</div>` : ''}
+      <div class="s ${x.status.toLowerCase().replace(/\s+/g, '-')}">${x.system ? 'Error · rejected (approver unavailable)' : x.status === 'Pending' ? 'Pending approval' : x.status === 'Cancel Requested' ? 'Cancellation pending approval' : x.status === 'Modify Requested' ? 'Modification pending approval' : x.status}${x.editable || x.cancelMode ? chev : ''}</div></div></div>`).join('')
       : '<div class="empty">No application history.</div>';
     $('hist').querySelectorAll('.item.tap').forEach(el => el.onclick = () => openSheet(d.history[+el.dataset.i]));
     $('goApply').disabled = false;
@@ -478,7 +479,7 @@
     const groups = d.approvals || [], cancels = d.cancels || [];
     $('aprBadge').textContent = cancels.length ? cancels.length : '';
     const tag = '<span class="tagpost">Post-application</span>';
-    const label = x => x.system ? 'Error · rejected' : x.status === 'Cancel Requested' ? 'Cancellation requested' : x.status === 'Pending' ? 'Pending' : x.status;
+    const label = x => x.system ? 'Error · rejected' : x.status === 'Cancel Requested' ? 'Cancellation requested' : x.status === 'Modify Requested' ? 'Modification requested' : x.status === 'Pending' ? 'Pending' : x.status;
     $('aprList').innerHTML =
       (cancels.length ? `<div class="sec2">Cancellation requests · approved by ${esc(d.cancelApprover || 'the person in charge')}</div>` + cancels.map((x, ci) => `
         <div class="creq" data-c="${ci}"><div class="t">${esc(x.applicant)}</div><div class="r">${x.start} - ${x.end.slice(11)} (${h1(x.hours)}h)</div><div class="m">Cancellation requested</div></div>`).join('') : '')
@@ -568,9 +569,10 @@
     const req = x.cancelMode === 'request';
     $('shTitle').textContent = x.status === 'Pending' ? 'OIL · Pending approval' : 'OIL · Approved';
     $('shMeta').innerHTML = `${x.start} - ${x.end.slice(11)} (${h1(x.hours)}h)<br>Applied ${x.appliedAt}`;
-    $('shEdit').style.display = x.editable ? '' : 'none';
+    $('shEdit').style.display = (x.editable || x.modifyMode === 'request') ? '' : 'none';
+    $('shEdit').textContent = x.modifyMode === 'request' ? 'Request Modification' : 'Modify';
     $('shHint').textContent = x.status === 'Pending' ? ''
-      : req ? `This period has already started or passed. Cancelling needs approval from ${(status && status.cancelApprover) || 'the person in charge'}, and your hours stay deducted until it is approved.`
+      : req ? `This period has already started or passed. Cancelling or modifying needs approval from ${(status && status.cancelApprover) || 'the person in charge'}, and your hours stay as they are until it is approved.`
             : 'This period has not started yet. Cancelling takes effect right away and the hours are refunded.';
     $('shHint').style.display = $('shHint').textContent ? '' : 'none';
     // a reason can be left only when cancelling a period that has already started or passed (optional)
@@ -584,6 +586,7 @@
   $('shClose').onclick = closeSheet;
   $('sheetMask').onclick = e => { if (e.target.id === 'sheetMask') closeSheet(); };
   $('shEdit').onclick = () => {
+    editMode = current.modifyMode === 'request' ? 'request' : ''; editReason = editMode === 'request' ? $('shReason').value.trim() : ''; editOrig = current;
     closeSheet(); editId = current.id; editHours = +current.hours;
     dates = [current.start.slice(0, 10)]; setT('start', current.start.slice(11)); setT('end', current.end.slice(11));
     fillApprover(); go('apply'); refresh();
@@ -617,6 +620,20 @@
     const s = $('start').value, e = $('end').value, now = new Date();
     const pastN = dates.filter(d => new Date(`${d}T${s}`) < now).length, post = pastN > 0;
     const many = dates.length > 1;
+    if (editMode === 'request') {
+      const o = editOrig, cur = `${o.start} - ${o.end.slice(11)} (${h1(o.hours)}h)`, nw = `${dates[0]} ${s} - ${e} (${h1(r.h)}h)`;
+      if (!(await ask(`Request modification?\nCurrent: ${cur}\nNew: ${nw}\nThe person in charge will be asked to approve. Your current OIL stays as it is until it is approved.`, { yes: 'Send request', no: 'Cancel' }))) return;
+      busy = true; refresh();
+      try {
+        const out = await api({ action: 'requestModify', id: editId, start: `${dates[0]}T${s}`, end: `${dates[0]}T${e}`, reason: editReason });
+        editId = ''; editHours = 0; editMode = ''; editReason = ''; editOrig = null; dates = [];
+        go('home');
+        await ask(`Modification request sent.\n${out.approver} has been emailed for approval. Your current OIL stays as it is until it is approved. You will be notified by email.`, { alert: true });
+        await reload();
+      } catch (err) { await ask(err.message, { alert: true }); }
+      busy = false; refresh();
+      return;
+    }
     const msg = (post ? `⚠ Post-application\n${many ? pastN + ' of the selected dates have' : 'This time has'} already passed. OIL must be applied in advance unless absolutely necessary.\n\n` : '')
       + (many ? dates.map(fmtDate).join('\n') : fmtDate(dates[0])) + `\n${s} – ${e}\n`
       + (many ? `${h1(r.h)} hours × ${dates.length} days = ${h1(r.total)} hours` : `${h1(r.h)} hour${r.h === 1 ? '' : 's'}`) + ` will be ${editId ? 'applied (replacing the pending application)' : 'deducted'}.`
@@ -632,7 +649,7 @@
       done = true;
       const n = out.count || 1, hrsTotal = out.total != null ? out.total : out.usage;
       toast(`${editId ? 'Updated' : 'Applied'} ${n > 1 ? n + ' days · ' : ''}${h1(hrsTotal)}h · Remaining ${h1(out.remaining)}h`);
-      editId = ''; editHours = 0; dates = [];
+      editId = ''; editHours = 0; editMode = ''; editReason = ''; editOrig = null; dates = [];
       go('home');
       await reload();   // a refresh failure must not look like a failed application
     } catch (err) {
